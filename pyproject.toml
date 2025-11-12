@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "dbx-vcf-data-source"
+version = "0.1.0"
+description = "PySpark custom data source for reading VCF files"
+authors = ["Databricks"]
+readme = "README.md"
+license = "DB License"
+packages = [{ include = "vcf_reader" }]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+
+[tool.poetry.group.dev.dependencies]
+pyspark = "^3.5.0"
+pytest = "^7.4.0"
+pytest-cov = "^4.1.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
