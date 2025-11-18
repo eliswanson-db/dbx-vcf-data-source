@@ -15,10 +15,10 @@ import os
 
 # Only run these tests if DataSource API is available
 try:
-    from pyspark.sql.datasource import DataSource
+    from vcf_reader.compat import DATASOURCE_API_AVAILABLE
     from vcf_reader import VCFDataSource
 
-    DATABRICKS_AVAILABLE = True
+    DATABRICKS_AVAILABLE = DATASOURCE_API_AVAILABLE
 except ImportError:
     DATABRICKS_AVAILABLE = False
 

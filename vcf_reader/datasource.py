@@ -1,5 +1,5 @@
-from pyspark.sql.datasource import DataSource
 from pyspark.sql.types import StructType
+from vcf_reader.compat import DataSource
 from vcf_reader.reader import VCFBatchReader
 from vcf_reader.stream_reader import VCFStreamReader
 

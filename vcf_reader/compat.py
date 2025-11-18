@@ -30,4 +30,48 @@ except ImportError:
             """Initialize VariantType."""
 
 
-__all__ = ["VariantVal", "VariantType", "DATABRICKS_AVAILABLE"]
+# Try to import DataSource APIs (only available in Databricks Runtime 15.4+)
+try:
+    from pyspark.sql.datasource import (
+        DataSource,
+        DataSourceReader,
+        DataSourceStreamReader,
+        InputPartition,
+    )
+
+    DATASOURCE_API_AVAILABLE = True
+except ImportError:
+    DATASOURCE_API_AVAILABLE = False
+
+    # Mock classes for testing outside Databricks
+    class DataSource:
+        """Mock DataSource for testing purposes."""
+
+        pass
+
+    class DataSourceReader:
+        """Mock DataSourceReader for testing purposes."""
+
+        pass
+
+    class DataSourceStreamReader:
+        """Mock DataSourceStreamReader for testing purposes."""
+
+        pass
+
+    class InputPartition:
+        """Mock InputPartition for testing purposes."""
+
+        pass
+
+
+__all__ = [
+    "VariantVal",
+    "VariantType",
+    "DATABRICKS_AVAILABLE",
+    "DataSource",
+    "DataSourceReader",
+    "DataSourceStreamReader",
+    "InputPartition",
+    "DATASOURCE_API_AVAILABLE",
+]

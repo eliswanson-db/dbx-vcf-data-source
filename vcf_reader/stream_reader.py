@@ -1,8 +1,8 @@
 import gzip
 import os
 from typing import Iterator, Tuple, List
-from pyspark.sql.datasource import DataSourceStreamReader, InputPartition
 from pyspark.sql.types import StructType
+from vcf_reader.compat import DataSourceStreamReader, InputPartition
 from vcf_reader.parser import parse_header, parse_vcf_line
 
 
