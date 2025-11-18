@@ -5,6 +5,12 @@ from pyspark.sql.types import StructType
 from vcf_reader.compat import DataSourceReader, InputPartition
 from vcf_reader.parser import parse_header, parse_vcf_line
 
+try:
+    from vcf_reader.arrow_reader import ArrowVCFReader, ARROW_AVAILABLE
+except ImportError:
+    ARROW_AVAILABLE = False
+    ArrowVCFReader = None
+
 
 class VCFFilePartition(InputPartition):
     """Represents a single VCF file to be processed as a partition."""
@@ -49,6 +55,12 @@ class VCFBatchReader(DataSourceReader):
         self.generate_primary_key = (
             options.get("generatePrimaryKey", "false").lower() == "true"
         )
+        
+        # Parse Arrow options
+        self.use_arrow = (
+            options.get("useArrow", "true").lower() == "true" and ARROW_AVAILABLE
+        )
+        self.batch_size = int(options.get("batchSize", "10000"))
 
         # Discover VCF files
         self.vcf_files = self._discover_vcf_files(self.path) if self.path else []
@@ -108,6 +120,21 @@ class VCFBatchReader(DataSourceReader):
         file_path = partition.file_path
         file_name = partition.file_name
 
+        # Use Arrow-based reader if enabled and available
+        if self.use_arrow and ARROW_AVAILABLE and ArrowVCFReader:
+            reader = ArrowVCFReader(
+                file_path=file_path,
+                file_name=file_name,
+                include_samples=self.include_samples,
+                exclude_samples=self.exclude_samples,
+                include_metadata=self.include_metadata,
+                generate_primary_key=self.generate_primary_key,
+                batch_size=self.batch_size,
+            )
+            yield from reader.read_batched()
+            return
+
+        # Fallback to line-by-line reading
         # Determine if file is gzipped
         is_gzipped = file_path.endswith(".gz")
 

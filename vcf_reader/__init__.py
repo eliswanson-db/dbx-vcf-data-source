@@ -9,3 +9,15 @@ try:
     __all__ = ["VCFDataSource", "get_vcf_schema"]
 except ImportError:
     __all__ = []
+
+# Export Arrow reader for direct usage
+try:
+    from vcf_reader.arrow_reader import (
+        ArrowVCFReader,
+        read_vcf_with_arrow,
+        ARROW_AVAILABLE,
+    )
+
+    __all__.extend(["ArrowVCFReader", "read_vcf_with_arrow", "ARROW_AVAILABLE"])
+except ImportError:
+    pass

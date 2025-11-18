@@ -9,6 +9,8 @@ packages = [{ include = "vcf_reader" }]
 
 [tool.poetry.dependencies]
 python = "^3.9"
+pyarrow = "^14.0.0"
+numpy = "^1.24,<2.0"
 
 [tool.poetry.group.dev.dependencies]
 pyspark = "^3.5.0"
