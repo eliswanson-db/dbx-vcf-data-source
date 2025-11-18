@@ -1,10 +1,10 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC # VCF Spark Reader - Databricks Example
-# MAGIC 
+# MAGIC
 # MAGIC This notebook demonstrates how to use the VCF Spark Reader in Databricks.
-# MAGIC 
-# MAGIC **Requirements**: Databricks Runtime 15.4 LTS or above
+# MAGIC
+# MAGIC **Requirements**: Databricks Runtime 17.3 LTS or above
 
 # COMMAND ----------
 
@@ -13,14 +13,8 @@
 
 # COMMAND ----------
 
-# Install the VCF reader
-# Specify the volume or location where your wheel has been uploaded.
-%pip install https://github.com/eliswanson-db/dbx-vcf-data-source/edit/main
-
-# COMMAND ----------
-
-# Restart Python to load the new package
-dbutils.library.restartPython()
+# MAGIC %pip install git+https://github.com/eliswanson-db/dbx-vcf-data-source@main
+# MAGIC dbutils.library.restartPython()
 
 # COMMAND ----------
 
@@ -32,8 +26,6 @@ dbutils.library.restartPython()
 from vcf_reader import VCFDataSource
 from pyspark.sql import SparkSession
 
-# Register the data source
-### Is there a way to do this so it doesn't have to be specified in a notebook
 spark.dataSource.register(VCFDataSource)
 
 # COMMAND ----------
@@ -51,24 +43,32 @@ directory_vcf_path = dbutils.widgets.get("directory_vcf_path")
 
 # COMMAND ----------
 
-df = spark.read.format("vcf").load(file_vcf_path)
-df.printSchema()
-display(df)
-
-# COMMAND ----------
-
 # MAGIC %md
 # MAGIC ## Example 1b: Read Directory of VCF Files
 
 # COMMAND ----------
 
+print(directory_vcf_path)
+
+# COMMAND ----------
+
+df = spark.read.format("vcf").option("generatePrimaryKey", "true").load("/Volumes/dbxmetagen/default/example_vcfs/")
+df = df.repartition(16)
+df.write.mode('overwrite').saveAsTable("dbxmetagen.default.vcf_output")
+
+# COMMAND ----------
+
 df_dir = spark.read.format("vcf").load(directory_vcf_path)
+df_dir.write.saveAsTable("dbxmetagen.default.test_vcf_output")
 
-# Show file metadata
-display(df_dir.select("file_name", "file_path", "contig", "start", "end"))
+# COMMAND ----------
 
-# Count variants per file
-display(df_dir.groupBy("file_name").count().orderBy("file_name"))
+display(df_dir)
+
+# COMMAND ----------
+
+df_read = spark.read.table("dbxmetagen.default.test_vcf_output")
+
 
 # COMMAND ----------
 
