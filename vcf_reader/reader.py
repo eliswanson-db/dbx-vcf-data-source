@@ -55,7 +55,7 @@ class VCFBatchReader(DataSourceReader):
         self.generate_primary_key = (
             options.get("generatePrimaryKey", "false").lower() == "true"
         )
-        
+
         # Parse Arrow options
         self.use_arrow = (
             options.get("useArrow", "true").lower() == "true" and ARROW_AVAILABLE
@@ -90,7 +90,14 @@ class VCFBatchReader(DataSourceReader):
         Returns:
             List of VCF file paths
         """
-        if not path or not os.path.exists(path):
+        if not path:
+            return []
+
+        if not os.path.exists(path):
+            # Path doesn't exist - might be a cloud path in Databricks
+            # Try to treat it as a single file path
+            if path.endswith(".vcf") or path.endswith(".vcf.gz"):
+                return [path]
             return []
 
         # If it's a file, return it directly
@@ -116,6 +123,11 @@ class VCFBatchReader(DataSourceReader):
         Yields:
             Tuples matching VCF schema
         """
+        # Handle None partition gracefully
+        if partition is None:
+            # No partition provided, return empty
+            return
+
         # Get file info from partition
         file_path = partition.file_path
         file_name = partition.file_name
