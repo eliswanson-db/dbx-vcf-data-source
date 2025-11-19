@@ -7,6 +7,8 @@ A PySpark custom data source for reading VCF (Variant Call Format) files with bo
 ## Features
 
 - **Batch and Streaming Support**: Read VCF files in both batch and streaming modes
+- **Apache Arrow Performance**: Uses PyArrow for high-performance batch processing of large files (1GB+)
+- **Memory-Efficient Streaming**: Processes large files in 64MB chunks to avoid memory issues
 - **Directory Support**: Read single files or entire directories (recursively finds all .vcf and .vcf.gz files)
 - **File Metadata**: Automatically includes file_path and file_name columns
 - **Compound Primary Key**: Optional SHA256 hash generation for unique variant identification
@@ -173,6 +175,39 @@ df = spark.read.format("vcf") \
 | `excludeSampleIds` | string | None | Comma-separated list of sample IDs to exclude |
 | `includeFileMetadata` | boolean | true | Include file_path and file_name columns |
 | `generatePrimaryKey` | boolean | false | Generate variant_id as SHA256 hash of file_path\|file_name\|contig\|start\|end |
+| `useArrow` | boolean | true | Use Apache Arrow for fast batch processing (recommended for large files) |
+| `batchSize` | integer | 10000 | Number of rows per batch when using Arrow |
+| `streamChunkSize` | integer | 67108864 | Chunk size in bytes for streaming large files (64MB default) |
+
+## Performance
+
+### Apache Arrow Acceleration
+
+By default, the VCF reader uses Apache Arrow for high-performance batch processing:
+
+```python
+# Arrow is enabled by default
+df = spark.read.format("vcf").load("large_file.vcf")
+
+# Disable Arrow if needed (falls back to line-by-line)
+df = spark.read.format("vcf") \
+    .option("useArrow", "false") \
+    .load("file.vcf")
+
+# Tune chunk size for very large files (default 64MB)
+df = spark.read.format("vcf") \
+    .option("streamChunkSize", "134217728") \  # 128MB chunks
+    .load("huge_file.vcf")
+```
+
+**Memory Usage:**
+- With Arrow streaming: ~64MB per file regardless of file size
+- Without Arrow: Memory usage scales with file size
+
+**Performance:**
+- Arrow is significantly faster than line-by-line parsing for large files (1GB+)
+- Gzip-compressed files are automatically decompressed on the fly
+- Arrow handles chunk boundaries correctly to avoid data loss
 
 ### Future Options (Stubbed)
 

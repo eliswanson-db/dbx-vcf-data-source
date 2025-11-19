@@ -61,6 +61,9 @@ class VCFBatchReader(DataSourceReader):
             options.get("useArrow", "true").lower() == "true" and ARROW_AVAILABLE
         )
         self.batch_size = int(options.get("batchSize", "10000"))
+        self.stream_chunk_size = int(
+            options.get("streamChunkSize", "67108864")
+        )  # 64MB default
 
         # Discover VCF files
         self.vcf_files = self._discover_vcf_files(self.path) if self.path else []
@@ -142,6 +145,7 @@ class VCFBatchReader(DataSourceReader):
                 include_metadata=self.include_metadata,
                 generate_primary_key=self.generate_primary_key,
                 batch_size=self.batch_size,
+                stream_chunk_size=self.stream_chunk_size,
             )
             yield from reader.read_batched()
             return

@@ -40,6 +40,7 @@ class ArrowVCFReader:
         include_metadata: bool = True,
         generate_primary_key: bool = False,
         batch_size: int = DEFAULT_BATCH_SIZE,
+        stream_chunk_size: int = 64 * 1024 * 1024,
     ):
         """
         Initialize Arrow-based VCF reader.
@@ -52,6 +53,7 @@ class ArrowVCFReader:
             include_metadata: Whether to include file metadata
             generate_primary_key: Whether to generate variant IDs
             batch_size: Number of rows to read per batch
+            stream_chunk_size: Size of chunks for streaming large files (default 64MB)
         """
         self.file_path = file_path
         self.file_name = file_name
@@ -60,6 +62,7 @@ class ArrowVCFReader:
         self.include_metadata = include_metadata
         self.generate_primary_key = generate_primary_key
         self.batch_size = batch_size
+        self.stream_chunk_size = stream_chunk_size
 
         self.is_gzipped = file_path.endswith(".gz")
         self.sample_names = []
@@ -117,120 +120,130 @@ class ArrowVCFReader:
             yield from self._read_plain_batched()
 
     def _read_plain_batched(self) -> Iterator[Tuple]:
-        """Read plain text VCF in batches using Arrow."""
+        """Read plain text VCF in batches using Arrow with streaming."""
         with open(self.file_path, "r", encoding="utf-8") as f:
             # Read header with Python
             self.sample_names, self.header_end_position = self._read_header(f)
 
-            # Read data portion with Arrow
-            # Arrow will start reading from current file position
-            remaining_data = f.read()
+            # Stream file in chunks to avoid loading entire file into memory
+            line_buffer = ""
 
-            if not remaining_data.strip():
-                return
+            while True:
+                chunk = f.read(self.stream_chunk_size)
+                if not chunk:
+                    # Process any remaining buffered line
+                    if line_buffer.strip():
+                        yield from self._parse_lines_with_arrow(line_buffer)
+                    break
 
-            # Use Arrow CSV reader with tab delimiter
-            try:
-                # Create a CSV read options with tab delimiter
-                read_options = csv.ReadOptions(
-                    use_threads=True,
-                    block_size=self.batch_size * 1024,  # Approximate batch size
-                    skip_rows=0,
-                    column_names=None,
-                )
+                # Combine with previous incomplete line
+                chunk = line_buffer + chunk
 
-                parse_options = csv.ParseOptions(
-                    delimiter="\t",
-                    quote_char=False,
-                    escape_char=False,
-                    newlines_in_values=False,
-                )
+                # Find last complete line
+                last_newline = chunk.rfind("\n")
+                if last_newline == -1:
+                    # No complete line yet, buffer everything
+                    line_buffer = chunk
+                    continue
 
-                # Read CSV into Arrow table in batches
-                reader = csv.read_csv(
-                    io.BytesIO(remaining_data.encode("utf-8")),
-                    read_options=read_options,
-                    parse_options=parse_options,
-                )
+                # Process complete lines
+                complete_lines = chunk[: last_newline + 1]
+                line_buffer = chunk[last_newline + 1 :]
 
-                # Process the table in batches
-                yield from self._process_arrow_table(reader)
-
-            except Exception:
-                # Fall back to line-by-line if Arrow fails
-                f.seek(self.header_end_position)
-                for line in f:
-                    if line.startswith("#") or not line.strip():
-                        continue
-                    try:
-                        row = parse_vcf_line(
-                            line,
-                            self.sample_names,
-                            self.include_samples,
-                            self.exclude_samples,
-                            file_path=self.file_path if self.include_metadata else "",
-                            file_name=self.file_name if self.include_metadata else "",
-                            generate_primary_key=self.generate_primary_key,
-                        )
-                        yield row
-                    except (ValueError, IndexError):
-                        continue
+                # Parse with Arrow
+                yield from self._parse_lines_with_arrow(complete_lines)
 
     def _read_gzipped_batched(self) -> Iterator[Tuple]:
-        """Read gzipped VCF file with Arrow."""
+        """Read gzipped VCF file with Arrow using streaming."""
         with gzip.open(self.file_path, "rt", encoding="utf-8") as f:
             # Read header with Python
             self.sample_names, _ = self._read_header(f)
 
-            # For gzipped files, read remaining data into memory
-            # (decompression is needed anyway)
-            remaining_data = f.read()
+            # Stream file in chunks (gzip decompresses on the fly)
+            line_buffer = ""
 
-            if not remaining_data.strip():
-                return
+            while True:
+                chunk = f.read(self.stream_chunk_size)
+                if not chunk:
+                    # Process any remaining buffered line
+                    if line_buffer.strip():
+                        yield from self._parse_lines_with_arrow(line_buffer)
+                    break
 
-            try:
-                # Use Arrow CSV reader
-                read_options = csv.ReadOptions(
-                    use_threads=True,
-                    block_size=self.batch_size * 1024,
-                    skip_rows=0,
-                    column_names=None,
-                )
+                # Combine with previous incomplete line
+                chunk = line_buffer + chunk
 
-                parse_options = csv.ParseOptions(
-                    delimiter="\t",
-                    quote_char=False,
-                    escape_char=False,
-                    newlines_in_values=False,
-                )
+                # Find last complete line
+                last_newline = chunk.rfind("\n")
+                if last_newline == -1:
+                    # No complete line yet, buffer everything
+                    line_buffer = chunk
+                    continue
 
-                reader = csv.read_csv(
-                    io.BytesIO(remaining_data.encode("utf-8")),
-                    read_options=read_options,
-                    parse_options=parse_options,
-                )
+                # Process complete lines
+                complete_lines = chunk[: last_newline + 1]
+                line_buffer = chunk[last_newline + 1 :]
 
-                yield from self._process_arrow_table(reader)
+                # Parse with Arrow
+                yield from self._parse_lines_with_arrow(complete_lines)
 
-            except Exception:
-                # Fall back to line-by-line
-                for line in remaining_data.split("\n"):
-                    if not line or line.startswith("#"):
-                        continue
-                    try:
-                        row = parse_vcf_line(
-                            line,
-                            self.sample_names,
-                            self.include_samples,
-                            self.exclude_samples,
-                            file_path=self.file_path if self.include_metadata else "",
-                            file_name=self.file_name if self.include_metadata else "",
-                            generate_primary_key=self.generate_primary_key,
-                        )
-                        yield row
-                    except (ValueError, IndexError):
-                        continue
+    def _parse_lines_with_arrow(self, lines_text: str) -> Iterator[Tuple]:
+        """
+        Parse a batch of VCF lines using Arrow CSV reader.
+
+        Args:
+            lines_text: Text containing complete VCF lines
+
+        Yields:
+            Parsed VCF row tuples
+        """
+        if not lines_text.strip():
+            return
+
+        try:
+            # Use Arrow CSV reader with tab delimiter
+            read_options = csv.ReadOptions(
+                use_threads=True,
+                block_size=self.batch_size * 1024,
+                skip_rows=0,
+                autogenerate_column_names=True,  # Don't use first line as header
+            )
+
+            parse_options = csv.ParseOptions(
+                delimiter="\t",
+                quote_char=False,
+                escape_char=False,
+                newlines_in_values=False,
+            )
+
+            # Read CSV into Arrow table
+            table = csv.read_csv(
+                io.BytesIO(lines_text.encode("utf-8")),
+                read_options=read_options,
+                parse_options=parse_options,
+            )
+
+            # Process the table in batches
+            yield from self._process_arrow_table(table)
+
+        except Exception:
+            # Fall back to line-by-line parsing for this chunk
+            for line in lines_text.split("\n"):
+                if not line or line.startswith("#"):
+                    continue
+                try:
+                    row = parse_vcf_line(
+                        line,
+                        self.sample_names,
+                        self.include_samples,
+                        self.exclude_samples,
+                        file_path=self.file_path if self.include_metadata else "",
+                        file_name=self.file_name if self.include_metadata else "",
+                        generate_primary_key=self.generate_primary_key,
+                    )
+                    yield row
+                except (ValueError, IndexError):
+                    continue
 
     def _process_arrow_table(self, table: pa.Table) -> Iterator[Tuple]:
         """
