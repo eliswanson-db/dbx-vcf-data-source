@@ -178,7 +178,7 @@ class TestArrowVCFReader:
             ), f"Row {i}: expected start {expected_start}, got {row[1]}"
 
     def test_arrow_reader_streaming_chunks_gzipped(self, tmp_path):
-        """Test Arrow reader streaming with gzipped files."""
+        """Test Arrow reader streaming with gzipped files using temp-file decompression."""
         if not ARROW_AVAILABLE:
             pytest.skip("PyArrow not available")
 
@@ -197,12 +197,16 @@ class TestArrowVCFReader:
                 pos = 1000 + (i * 100)
                 f.write(f"chr1\t{pos}\t.\tA\tT\t30\tPASS\tDP=50\tGT:DP\t0/1:{50+i}\n")
 
-        # Read with small chunk size
+        # Read gzipped file (uses temp-file decompression internally)
         reader = ArrowVCFReader(
             file_path=str(vcf_file),
             file_name="large.vcf.gz",
-            stream_chunk_size=1024,  # 1KB chunks
+            stream_chunk_size=1024,  # 1KB chunks for plain file processing
         )
 
         rows = list(reader.read_batched())
         assert len(rows) == 50, f"Expected 50 rows, got {len(rows)}"
+
+        # Verify data integrity
+        assert rows[0][1] == 999  # First variant 0-based start
+        assert rows[-1][1] == 5899  # Last variant 0-based start

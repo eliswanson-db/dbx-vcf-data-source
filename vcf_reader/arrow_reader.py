@@ -2,6 +2,9 @@
 
 import gzip
 import io
+import os
+import shutil
+import tempfile
 from typing import Iterator, Tuple, List, Optional, TYPE_CHECKING
 
 try:
@@ -154,38 +157,39 @@ class ArrowVCFReader:
                 yield from self._parse_lines_with_arrow(complete_lines)
 
     def _read_gzipped_batched(self) -> Iterator[Tuple]:
-        """Read gzipped VCF file with Arrow using streaming."""
-        with gzip.open(self.file_path, "rt", encoding="utf-8") as f:
-            # Read header with Python
-            self.sample_names, _ = self._read_header(f)
+        """
+        Read gzipped VCF file by decompressing to temp file first.
 
-            # Stream file in chunks (gzip decompresses on the fly)
-            line_buffer = ""
+        Note: gzip.open().read(chunk_size) doesn't truly stream - it buffers
+        internally causing 60GB+ memory spikes for 1GB gzipped files.
+        Solution: Decompress to temp file (memory-efficient), then use plain reader.
+        """
+        # Create temp file in system temp directory
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".vcf", prefix="vcf_reader_")
+        os.close(tmp_fd)
 
-            while True:
-                chunk = f.read(self.stream_chunk_size)
-                if not chunk:
-                    # Process any remaining buffered line
-                    if line_buffer.strip():
-                        yield from self._parse_lines_with_arrow(line_buffer)
-                    break
+        try:
+            # Decompress with true streaming (shutil.copyfileobj is memory-efficient)
+            # This uses only 16MB of memory regardless of file size
+            with gzip.open(self.file_path, "rb") as f_in:
+                with open(tmp_path, "wb") as f_out:
+                    shutil.copyfileobj(f_in, f_out, length=16 * 1024 * 1024)
 
-                # Combine with previous incomplete line
-                chunk = line_buffer + chunk
+            # Now use our working plain-file Arrow streaming on decompressed file
+            original_path = self.file_path
+            original_gzipped = self.is_gzipped
 
-                # Find last complete line
-                last_newline = chunk.rfind("\n")
-                if last_newline == -1:
-                    # No complete line yet, buffer everything
-                    line_buffer = chunk
-                    continue
+            self.file_path = tmp_path
+            self.is_gzipped = False
 
-                # Process complete lines
-                complete_lines = chunk[: last_newline + 1]
-                line_buffer = chunk[last_newline + 1 :]
+            yield from self._read_plain_batched()
 
-                # Parse with Arrow
-                yield from self._parse_lines_with_arrow(complete_lines)
+        finally:
+            # Restore original state and cleanup temp file
+            self.file_path = original_path
+            self.is_gzipped = original_gzipped
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
 
     def _parse_lines_with_arrow(self, lines_text: str) -> Iterator[Tuple]:
         """

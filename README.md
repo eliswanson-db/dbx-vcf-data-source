@@ -206,8 +206,16 @@ df = spark.read.format("vcf") \
 
 **Performance:**
 - Arrow is significantly faster than line-by-line parsing for large files (1GB+)
-- Gzip-compressed files are automatically decompressed on the fly
+- Gzipped files are decompressed to temporary files first (memory-efficient), then processed with Arrow
+- Plain files are streamed in 64MB chunks without full decompression
 - Arrow handles chunk boundaries correctly to avoid data loss
+
+**Gzipped File Handling:**
+- Gzipped files (`.vcf.gz`) are automatically detected
+- Files are decompressed to system temp directory using streaming (16MB chunks)
+- Only 16MB memory used during decompression regardless of file size
+- Temporary files are automatically cleaned up after processing
+- Temp files leverage local worker SSD for fast I/O
 
 ### Future Options (Stubbed)
 
