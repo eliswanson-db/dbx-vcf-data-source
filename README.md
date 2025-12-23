@@ -29,7 +29,7 @@ A PySpark custom data source for reading VCF (Variant Call Format) files with bo
 Install directly from PyPI:
 
 ```python
-%pip install vcf-spark-reader
+%pip install --github https://github.com/eliswanson-db/dbx-vcf-spark-reader/vcf-spark-reader
 ```
 
 Or install from source:
