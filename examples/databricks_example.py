@@ -30,15 +30,20 @@ spark.dataSource.register(VCFDataSource)
 
 # COMMAND ----------
 
+dbutils.widgets.text("file_vcf_path", "", "Path to single file")
+dbutils.widgets.text("directory_vcf_path", "", "Path to directory with multiple files")
+dbutils.widgets.text("catalog_schema", "", "Catalog and schema")
+
+# COMMAND ----------
+
 # MAGIC %md
 # MAGIC ## Example 1: Batch Read Single VCF File
 
 # COMMAND ----------
 
-dbutils.widgets.text("file_vcf_path", "", "Path to single file")
-dbutils.widgets.text("directory_vcf_path", "", "Path to directory with multiple files")
 file_vcf_path = dbutils.widgets.get("file_vcf_path")
-directory_vcf_path = dbutils.widgets.get("directory_vcf_path")
+directory_vcf_path = file_vcf_path if file_vcf_path != "" else dbutils.widgets.get("directory_vcf_path")
+catalog_schema = dbutils.widgets.get("catalog_schema")
 
 
 # COMMAND ----------
@@ -48,27 +53,28 @@ directory_vcf_path = dbutils.widgets.get("directory_vcf_path")
 
 # COMMAND ----------
 
-print(directory_vcf_path)
+print(directory_vcf_path) #/Volumes/mfeichtel_classic_ws_catalog/vcf_data_source/raw_data/small_files/sample.vcf
+print(catalog_schema)
 
 # COMMAND ----------
 
-df = spark.read.format("vcf").option("generatePrimaryKey", "true").load("/Volumes/dbxmetagen/default/example_vcfs/")
+# @mfeichtel - what is this doing? 
+df = spark.read.format("vcf").option("generatePrimaryKey", "true").load(directory_vcf_path)
 df = df.repartition(16)
-df.write.mode('overwrite').saveAsTable("dbxmetagen.default.vcf_output")
+df.write.mode('overwrite').saveAsTable(f"{catalog_schema}.vcf_output")
 
 # COMMAND ----------
 
-df_dir = spark.read.format("vcf").load(directory_vcf_path)
-df_dir.write.saveAsTable("dbxmetagen.default.test_vcf_output")
+df_read = spark.read.table(f"{catalog_schema}.vcf_output")
+display(df_read)
 
 # COMMAND ----------
 
-display(df_dir)
+display(df_read.groupBy("contig").count())
 
 # COMMAND ----------
 
-df_read = spark.read.table("dbxmetagen.default.test_vcf_output")
-
+df_read.printSchema()
 
 # COMMAND ----------
 
@@ -79,7 +85,7 @@ df_read = spark.read.table("dbxmetagen.default.test_vcf_output")
 
 df_with_pk = spark.read.format("vcf") \
     .option("generatePrimaryKey", "true") \
-    .load(vcf_directory)
+    .load(directory_vcf_path)
 
 display(df_with_pk.select("variant_id", "file_name", "contig", "start", "end"))
 
@@ -92,7 +98,7 @@ display(df_with_pk.select("variant_id", "file_name", "contig", "start", "end"))
 
 df_no_metadata = spark.read.format("vcf") \
     .option("includeFileMetadata", "false") \
-    .load(vcf_path)
+    .load(directory_vcf_path)
 
 # No metadata should show
 display(df_no_metadata.select("contig", "start", "file_path", "file_name"))
@@ -104,10 +110,10 @@ display(df_no_metadata.select("contig", "start", "file_path", "file_name"))
 
 # COMMAND ----------
 
-region_df = df.filter(
-    (df.contig == "chr1") & 
-    (df.start >= 1000000) & 
-    (df.end <= 2000000)
+region_df = df_read.filter(
+    (df_read.contig == "22") & 
+    (df_read.start >= 10000000) & 
+    (df_read.end <= 20000000)
 )
 
 display(region_df)
@@ -119,15 +125,15 @@ display(region_df)
 
 # COMMAND ----------
 
-from pyspark.sql.functions import col
+from pyspark.sql.functions import col, variant_get
 
-info_df = df.select(
+info_df = df_read.select(
     "contig",
     "start",
     "referenceAllele",
     "alternateAlleles",
-    col("info:DP").alias("depth"),
-    col("info:AF").alias("allele_frequency")
+    variant_get(col("info"), "$.DP", "string").alias("depth"),
+    variant_get(col("info"), "$.AF", "string").alias("allele_frequency")
 )
 
 display(info_df)
@@ -141,7 +147,7 @@ display(info_df)
 
 from pyspark.sql.functions import explode
 
-genotypes_df = df.select(
+genotypes_df = df_read.select(
     "contig",
     "start",
     "referenceAllele",
@@ -154,7 +160,8 @@ genotype_details = genotypes_df.select(
     "start",
     col("genotype.sampleId"),
     col("genotype.calls"),
-    col("genotype.data:DP").alias("read_depth")
+    variant_get(col("genotype.data"), "$.DP", "string").alias("read_depth"),
+    "genotype"
 )
 
 display(genotype_details)
